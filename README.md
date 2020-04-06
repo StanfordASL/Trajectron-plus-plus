@@ -1,8 +1,5 @@
 <p align="center"><img width="100%" src="img/Trajectron++.png"/></p>
 
-Things to fix/add:
-- keep pedestrians branch as pedestrians_old and make this one master.
-
 # Trajectron++: Dynamically-Feasible Trajectory Forecasting With Heterogeneous Data #
 This repository contains the code for [Trajectron++: Dynamically-Feasible Trajectory Forecasting With Heterogeneous Data](img/paper.pdf) by Tim Salzmann\*, Boris Ivanovic\*, Punarjay Chakravarty, and Marco Pavone (\* denotes equal contribution).
 
