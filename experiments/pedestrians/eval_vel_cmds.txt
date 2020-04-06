@@ -1,0 +1,6 @@
+python evaluate.py --model ./models/eth_vel --checkpoint 100 --data ../processed/eth_test.pkl --output_path ./results/ --output_tag eth_vel_12 --node_type PEDESTRIAN
+python evaluate.py --model ./models/hotel_vel --checkpoint 100 --data ../processed/hotel_test.pkl --output_path ./results/ --output_tag hotel_vel_12 --node_type PEDESTRIAN
+python evaluate.py --model ./models/zara1_vel --checkpoint 100 --data ../processed/zara1_test.pkl --output_path ./results/ --output_tag zara1_vel_12 --node_type PEDESTRIAN
+python evaluate.py --model ./models/zara2_vel --checkpoint 100 --data ../processed/zara2_test.pkl --output_path ./results/ --output_tag zara2_vel_12 --node_type PEDESTRIAN
+python evaluate.py --model ./models/univ_vel --checkpoint 100 --data ../processed/univ_test.pkl --output_path ./results/ --output_tag univ_vel_12 --node_type PEDESTRIAN
+

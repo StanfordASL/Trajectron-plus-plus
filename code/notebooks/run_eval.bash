@@ -1,6 +1,0 @@
-#!/bin/bash
-python model_to_metric_nuScenes.py --model "../../data/nuScenes/models/full" --checkpoint 1 --data "../../data/processed/nuScenes_test.pkl" --output "./csv/full_veh" --node_type "VEHICLE" --prediction_horizon 2 4 6 8 > full_out.txt
-python model_to_metric_nuScenes.py --model "../../data/nuScenes/models/me_demo" --checkpoint 1 --data "../../data/processed/nuScenes_test.pkl" --output "./csv/me_veh" --node_type "VEHICLE" --prediction_horizon 2 4 6 8 > me_out.txt
-python model_to_metric_nuScenes.py --model "../../data/nuScenes/models/edge" --checkpoint 1 --data "../../data/processed/nuScenes_test.pkl" --output "./csv/edge_veh" --node_type "VEHICLE" --prediction_horizon 2 4 6 8  > edge_out.txt
-python model_to_metric_nuScenes.py --model "../../data/nuScenes/models/baseline" --checkpoint 1 --data "../../data/processed/nuScenes_test.pkl" --output "./csv/baseline_veh" --node_type "VEHICLE" --prediction_horizon 2 4 6 8  > baseline_out.txt
-python model_to_metric_nuScenes.py --model "../../data/nuScenes/models/full" --checkpoint 1 --data "../../data/processed/nuScenes_test.pkl" --output "./csv/full_ped" --node_type "PEDESTRIAN" --prediction_horizon 2 4 6 8  > full_out_ped.txt

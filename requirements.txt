@@ -8,6 +8,15 @@ tensorboard==1.14.0
 tensorboardX==1.8
 tensorflow==1.14.0
 tensorflow-estimator==1.14.0
-torch==1.2.0
+torch==1.4.0
 Pillow==6.1.0
 pyquaternion==0.9.5
+pytest==5.3.0
+orjson==2.1.4
+ncls==0.0.51
+dill==0.3.1.1
+tqdm==4.45.0
+notebook==6.0.3
+scikit-learn==0.22.1
+opencv-python==4.1.1.26
+nuscenes-devkit==1.0.6
