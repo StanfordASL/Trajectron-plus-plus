@@ -1,3 +1,5 @@
+**NOTE:** This branch is obsolete, it is only kept around for posterity.
+
 # Trajectron++: Multi-Agent Generative Trajectory Forecasting With Heterogeneous Data for Control #
 
 This repository contains the code for [Trajectron++: Multi-Agent Generative Trajectory Forecasting With Heterogeneous Data for Control](https://arxiv.org/abs/2001.03093) by Tim Salzmann\*, Boris Ivanovic\*, Punarjay Chakravarty, and Marco Pavone (\* denotes equal contribution).
