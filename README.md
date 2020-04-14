@@ -125,7 +125,7 @@ If you instead wanted to evaluate a trained model's performance on forecasting p
 
 | Model                       | Command                                                                                                                                                                                                 |
 |-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Base                        | `python evaluate.py --model models/ee_vel --checkpoint=12 --data ../processed/nuScenes_test_full.pkl --output_path results --output_tag vel_ee_ped --node_type PEDESTRIAN --prediction_horizon 6`       |
+| Base                        | `python evaluate.py --model models/vel_ee --checkpoint=12 --data ../processed/nuScenes_test_full.pkl --output_path results --output_tag vel_ee_ped --node_type PEDESTRIAN --prediction_horizon 6`       |
 | +Dynamics Integration, Maps | `python evaluate.py --model models/int_ee_me --checkpoint=12 --data ../processed/nuScenes_test_full.pkl --output_path results --output_tag int_ee_me_ped --node_type PEDESTRIAN --prediction_horizon 6` |
 
 These scripts will produce csv files in the `results` directory which can then be analyzed in the `NuScenes Quantitative.ipynb` notebook.
