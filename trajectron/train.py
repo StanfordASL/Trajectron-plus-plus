@@ -132,6 +132,9 @@ def main():
                                        return_robot=not args.incl_robot_node)
     train_data_loader = dict()
     for node_type_data_set in train_dataset:
+        if len(node_type_data_set) == 0:
+            continue
+
         node_type_dataloader = utils.data.DataLoader(node_type_data_set,
                                                      collate_fn=collate,
                                                      pin_memory=False if args.device is 'cpu' else True,
@@ -172,6 +175,9 @@ def main():
                                           return_robot=not args.incl_robot_node)
         eval_data_loader = dict()
         for node_type_data_set in eval_dataset:
+            if len(node_type_data_set) == 0:
+                continue
+
             node_type_dataloader = utils.data.DataLoader(node_type_data_set,
                                                          collate_fn=collate,
                                                          pin_memory=False if args.eval_device is 'cpu' else True,
@@ -285,6 +291,7 @@ def main():
                 predictions = trajectron.predict(scene,
                                                  timestep,
                                                  ph,
+                                                 min_future_timesteps=ph,
                                                  z_mode=True,
                                                  gmm_mode=True,
                                                  all_z_sep=False,

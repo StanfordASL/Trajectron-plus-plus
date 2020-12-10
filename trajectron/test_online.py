@@ -2,7 +2,7 @@ import os
 import time
 import json
 import torch
-import pickle
+import dill
 import random
 import pathlib
 import evaluation
@@ -11,7 +11,7 @@ import visualization as vis
 from argument_parser import args
 from model.online.online_trajectron import OnlineTrajectron
 from model.model_registrar import ModelRegistrar
-from data import Environment, Scene
+from environment import Environment, Scene
 import matplotlib.pyplot as plt
 
 if not torch.cuda.is_available() or args.device == 'cpu':
@@ -58,8 +58,56 @@ def create_online_env(env, hyperparams, scene_idx, init_timestep):
                        robot_type=env.robot_type)
 
 
+def get_maps_for_input(input_dict, scene, hyperparams):
+    scene_maps = list()
+    scene_pts = list()
+    heading_angles = list()
+    patch_sizes = list()
+    nodes_with_maps = list()
+    for node in input_dict:
+        if node.type in hyperparams['map_encoder']:
+            x = input_dict[node]
+            me_hyp = hyperparams['map_encoder'][node.type]
+            if 'heading_state_index' in me_hyp:
+                heading_state_index = me_hyp['heading_state_index']
+                # We have to rotate the map in the opposit direction of the agent to match them
+                if type(heading_state_index) is list:  # infer from velocity or heading vector
+                    heading_angle = -np.arctan2(x[-1, heading_state_index[1]],
+                                                x[-1, heading_state_index[0]]) * 180 / np.pi
+                else:
+                    heading_angle = -x[-1, heading_state_index] * 180 / np.pi
+            else:
+                heading_angle = None
+
+            scene_map = scene.map[node.type]
+            map_point = x[-1, :2]
+
+            patch_size = hyperparams['map_encoder'][node.type]['patch_size']
+
+            scene_maps.append(scene_map)
+            scene_pts.append(map_point)
+            heading_angles.append(heading_angle)
+            patch_sizes.append(patch_size)
+            nodes_with_maps.append(node)
+
+    if heading_angles[0] is None:
+        heading_angles = None
+    else:
+        heading_angles = torch.Tensor(heading_angles)
+
+    maps = scene_maps[0].get_cropped_maps_from_scene_map_batch(scene_maps,
+                                                               scene_pts=torch.Tensor(scene_pts),
+                                                               patch_size=patch_sizes[0],
+                                                               rotation=heading_angles)
+
+    maps_dict = {node: maps[[i]] for i, node in enumerate(nodes_with_maps)}
+    return maps_dict
+
+
 def main():
-    model_dir = os.path.join(args.log_dir, 'models_14_Jan_2020_00_24_21eth_no_rob')
+    # Choose one of the model directory names under the experiment/*/models folders.
+    # Possibilities are 'vel_ee', 'int_ee', 'int_ee_me', or 'robot'
+    model_dir = os.path.join(args.log_dir, 'int_ee')
 
     # Load hyperparameters from json
     config_file = os.path.join(model_dir, args.conf)
@@ -78,27 +126,22 @@ def main():
     hyperparams['k_eval'] = args.k_eval
     hyperparams['offline_scene_graph'] = args.offline_scene_graph
     hyperparams['incl_robot_node'] = args.incl_robot_node
-    hyperparams['scene_batch_size'] = args.scene_batch_size
-    hyperparams['node_resample_train'] = args.node_resample_train
-    hyperparams['node_resample_eval'] = args.node_resample_eval
-    hyperparams['scene_resample_train'] = args.scene_resample_train
-    hyperparams['scene_resample_eval'] = args.scene_resample_eval
-    hyperparams['scene_resample_viz'] = args.scene_resample_viz
     hyperparams['edge_encoding'] = not args.no_edge_encoding
+    hyperparams['use_map_encoding'] = args.map_encoding
 
     output_save_dir = os.path.join(model_dir, 'pred_figs')
     pathlib.Path(output_save_dir).mkdir(parents=True, exist_ok=True)
 
     eval_data_path = os.path.join(args.data_dir, args.eval_data_dict)
     with open(eval_data_path, 'rb') as f:
-        eval_env = pickle.load(f, encoding='latin1')
+        eval_env = dill.load(f, encoding='latin1')
 
     if eval_env.robot_type is None and hyperparams['incl_robot_node']:
         eval_env.robot_type = eval_env.NodeType[0]  # TODO: Make more general, allow the user to specify?
         for scene in eval_env.scenes:
             scene.add_robot_from_nodes(eval_env.robot_type)
 
-    print('Loaded evaluation data from %s' % (eval_data_path,))
+    print('Loaded data from %s' % (eval_data_path,))
 
     # Creating a dummy environment with a single scene that contains information about the world.
     # When using this code, feel free to use whichever scene index or initial timestep you wish.
@@ -112,7 +155,7 @@ def main():
     online_env = create_online_env(eval_env, hyperparams, scene_idx, init_timestep)
 
     model_registrar = ModelRegistrar(model_dir, args.eval_device)
-    model_registrar.load_models(iter_num=1999)
+    model_registrar.load_models(iter_num=12)
 
     trajectron = OnlineTrajectron(model_registrar,
                                   hyperparams,
@@ -126,10 +169,14 @@ def main():
     trajectron.set_environment(online_env, init_timestep)
 
     for timestep in range(init_timestep + 1, eval_scene.timesteps):
-        pos_dict = eval_scene.get_clipped_pos_dict(timestep, hyperparams['state'])
+        input_dict = eval_scene.get_clipped_input_dict(timestep, hyperparams['state'])
+
+        maps = None
+        if hyperparams['use_map_encoding']:
+            maps = get_maps_for_input(input_dict, eval_scene, hyperparams)
 
         robot_present_and_future = None
-        if eval_scene.robot is not None:
+        if eval_scene.robot is not None and hyperparams['incl_robot_node']:
             robot_present_and_future = eval_scene.robot.get(np.array([timestep,
                                                                       timestep + hyperparams['prediction_horizon']]),
                                                             hyperparams['state'][eval_scene.robot.type],
@@ -138,10 +185,12 @@ def main():
             # robot_present_and_future += adjustment
 
         start = time.time()
-        preds = trajectron.incremental_forward(pos_dict,
-                                               prediction_horizon=12,
-                                               num_samples=25,
-                                               robot_present_and_future=robot_present_and_future)
+        dists, preds = trajectron.incremental_forward(input_dict,
+                                                      maps,
+                                                      prediction_horizon=6,
+                                                      num_samples=1,
+                                                      robot_present_and_future=robot_present_and_future,
+                                                      full_dist=True)
         end = time.time()
         print("t=%d: took %.2f s (= %.2f Hz) w/ %d nodes and %d edges" % (timestep, end - start,
                                                                           1. / (end - start), len(trajectron.nodes),
@@ -152,23 +201,16 @@ def main():
             if node in preds:
                 detailed_preds_dict[node] = preds[node]
 
-        batch_stats = evaluation.compute_batch_statistics({timestep: detailed_preds_dict},
-                                                          eval_scene.dt,
-                                                          max_hl=hyperparams['maximum_history_length'],
-                                                          ph=hyperparams['prediction_horizon'],
-                                                          node_type_enum=online_env.NodeType,
-                                                          prune_ph_to_future=True)
-
-        evaluation.print_batch_errors([batch_stats], 'eval', timestep)
-
         fig, ax = plt.subplots()
+        vis.visualize_distribution(ax,
+                                   dists)
         vis.visualize_prediction(ax,
                                  {timestep: preds},
                                  eval_scene.dt,
                                  hyperparams['maximum_history_length'],
                                  hyperparams['prediction_horizon'])
 
-        if eval_scene.robot is not None:
+        if eval_scene.robot is not None and hyperparams['incl_robot_node']:
             robot_for_plotting = eval_scene.robot.get(np.array([timestep,
                                                                 timestep + hyperparams['prediction_horizon']]),
                                                       hyperparams['state'][eval_scene.robot.type])

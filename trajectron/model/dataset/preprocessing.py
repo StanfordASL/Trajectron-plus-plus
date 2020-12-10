@@ -159,8 +159,9 @@ def get_node_timestep_data(env, scene, t, node, state, pred_state,
         else:
             robot = scene.robot
         robot_type = robot.type
-        robot_traj = robot.get(timestep_range_r, state[robot_type], padding=0.0)
+        robot_traj = robot.get(timestep_range_r, state[robot_type], padding=np.nan)
         robot_traj_st_t = get_relative_robot_traj(env, state, x_node, robot_traj, node.type, robot_type)
+        robot_traj_st_t[torch.isnan(robot_traj_st_t)] = 0.0
 
     # Map
     map_tuple = None

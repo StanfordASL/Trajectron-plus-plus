@@ -4,7 +4,7 @@ from collections import Counter
 from model.trajectron import Trajectron
 from model.online.online_mgcvae import OnlineMultimodalGenerativeCVAE
 from model.model_utils import ModeKeys
-from data import RingBuffer, TemporalSceneGraph, SceneGraph, derivative_of
+from environment import RingBuffer, TemporalSceneGraph, SceneGraph, derivative_of
 
 
 class OnlineTrajectron(Trajectron):
@@ -58,10 +58,11 @@ class OnlineTrajectron(Trajectron):
 
         # Fast-forwarding ourselves to the initial timestep, without running any of the underlying models.
         for timestep in range(init_timestep + 1):
-            self.incremental_forward(self.env.scenes[0].get_clipped_pos_dict(timestep, self.hyperparams['state']),
-                                     run_models=False)
+            self.incremental_forward(self.env.scenes[0].get_clipped_input_dict(timestep, self.hyperparams['state']),
+                                     maps=None, run_models=False)
 
     def incremental_forward(self, new_inputs_dict,
+                            maps,
                             prediction_horizon=0,
                             num_samples=0,
                             robot_present_and_future=None,
@@ -80,7 +81,8 @@ class OnlineTrajectron(Trajectron):
             for node, new_input in new_inputs_dict.items():
                 if node not in self.node_data:
                     self.node_data[node] = RingBuffer(capacity=self.RING_CAPACITY,
-                                                      dtype=(float, len(self.state[node.type]['position'])))
+                                                      dtype=(float, sum(len(self.state[node.type][k])
+                                                                        for k in self.state[node.type])))
                 self.node_data[node].append(new_input)
 
                 if node in self.removed_nodes:
@@ -101,17 +103,10 @@ class OnlineTrajectron(Trajectron):
             # that when it's passed through the LSTMs, the hidden state keeps propagating but the input plays no role
             # (the NaNs get converted to zeros later on).
             for node in self.removed_nodes:
-                self.node_data[node].append(np.full((1, 2), np.nan))
+                self.node_data[node].append(np.full((1, self.node_data[node].shape[1]), np.nan))
 
             for node in self.node_data:
-                x = self.node_data[node][:, 0]
-                y = self.node_data[node][:, 1]
-                vx = derivative_of(x, self.env.scenes[0].dt)
-                vy = derivative_of(y, self.env.scenes[0].dt)
-                ax = derivative_of(vx, self.env.scenes[0].dt)
-                ay = derivative_of(vy, self.env.scenes[0].dt)
-                new_node_data = np.stack([x, y, vx, vy, ax, ay], axis=-1)
-                node.overwrite_data(new_node_data,
+                node.overwrite_data(self.node_data[node], None,
                                     forward_in_time_on_next_overwrite=(self.node_data[node].shape[0]
                                                                        == self.RING_CAPACITY))
 
@@ -139,14 +134,15 @@ class OnlineTrajectron(Trajectron):
 
                 # These next 2 for loops add or remove entire node models.
                 for node in new_nodes:
-                    if node.is_robot:
+                    if (node.is_robot and self.hyperparams['incl_robot_node']) or node.type not in self.pred_state.keys():
+                        # Only deal with Models for NodeTypes we want to predict
                         continue
 
                     self._add_node_model(node)
                     self.node_models_dict[node].update_graph(new_scene_graph, new_neighbors, removed_neighbors)
 
                 for node in removed_nodes:
-                    if node.is_robot:
+                    if (node.is_robot and self.hyperparams['incl_robot_node']) or node.type not in self.pred_state.keys():
                         continue
 
                     self._remove_node_model(node)
@@ -157,7 +153,8 @@ class OnlineTrajectron(Trajectron):
                 inputs_st = dict()
                 inputs_np = dict()
 
-                iter_list = list(self.node_models_dict.keys())
+                iter_list = list(self.node_models_dict.keys()) + [node for node in new_inputs_dict
+                                                                    if node.type not in self.pred_state.keys()]
                 if self.env.scenes[0].robot is not None:
                     iter_list.append(self.env.scenes[0].robot)
 
@@ -191,12 +188,15 @@ class OnlineTrajectron(Trajectron):
                         robot_present_and_future = robot_present_and_future[np.newaxis, :]
 
                     assert robot_present_and_future.shape[1] == prediction_horizon + 1
+                    robot_present_and_future = torch.tensor(robot_present_and_future,
+                                                            dtype=torch.float, device=self.device)
 
                 for node in self.node_models_dict:
                     self.node_models_dict[node].encoder_forward(inputs,
                                                                 inputs_st,
                                                                 inputs_np,
-                                                                robot_present_and_future)
+                                                                robot_present_and_future,
+                                                                maps)
 
                 # If num_predicted_timesteps or num_samples == 0 then do not run the decoder at all,
                 # just update the encoder LSTMs.
@@ -220,21 +220,18 @@ class OnlineTrajectron(Trajectron):
                      full_dist=False,
                      all_z_sep=False):
         model = self.node_models_dict[node]
-        predictions = model.decoder_forward(num_predicted_timesteps,
-                                            num_samples,
-                                            robot_present_and_future=robot_present_and_future,
-                                            z_mode=z_mode,
-                                            gmm_mode=gmm_mode,
-                                            full_dist=full_dist,
-                                            all_z_sep=all_z_sep)
+        prediction_dist, predictions_uns = model.decoder_forward(num_predicted_timesteps,
+                                                                 num_samples,
+                                                                 robot_present_and_future=robot_present_and_future,
+                                                                 z_mode=z_mode,
+                                                                 gmm_mode=gmm_mode,
+                                                                 full_dist=full_dist,
+                                                                 all_z_sep=all_z_sep)
 
-        predictions_uns = self.env.unstandardize(predictions.cpu().detach().numpy(),
-                                                 self.pred_state[node.type.name],
-                                                 node.type,
-                                                 mean=self.rel_states[node][..., 0:2])
+        predictions_np = predictions_uns.cpu().detach().numpy()
 
         # Return will be of shape (batch_size, num_samples, num_predicted_timesteps, 2)
-        return np.transpose(predictions_uns, (1, 0, 2, 3))
+        return prediction_dist, np.transpose(predictions_np, (1, 0, 2, 3))
 
     def sample_model(self, num_predicted_timesteps,
                      num_samples,
@@ -262,23 +259,24 @@ class OnlineTrajectron(Trajectron):
         # No grad since we're predicting always, as evidenced by the line above.
         with torch.no_grad():
             predictions_dict = dict()
+            prediction_dists = dict()
             for node in set(self.nodes) - set(self.removed_nodes.keys()):
                 if node.is_robot:
                     continue
 
-                predictions_dict[node] = self._run_decoder(node, num_predicted_timesteps,
-                                                           num_samples,
-                                                           robot_present_and_future,
-                                                           z_mode,
-                                                           gmm_mode,
-                                                           full_dist,
-                                                           all_z_sep)
+                prediction_dists[node], predictions_dict[node] = self._run_decoder(node, num_predicted_timesteps,
+                                                                                   num_samples,
+                                                                                   robot_present_and_future,
+                                                                                   z_mode,
+                                                                                   gmm_mode,
+                                                                                   full_dist,
+                                                                                   all_z_sep)
 
-        return predictions_dict
+        return prediction_dists, predictions_dict
 
     def forward(self, init_env,
                 init_timestep,
-                pos_dicts,  # After the initial environment
+                input_dicts,  # After the initial environment
                 num_predicted_timesteps,
                 num_samples,
                 robot_present_and_future=None,
@@ -294,8 +292,8 @@ class OnlineTrajectron(Trajectron):
         self.set_environment(init_env, init_timestep)
 
         # Looping through and applying updates to the model.
-        for i in range(len(pos_dicts)):
-            self.incremental_forward(pos_dicts[i])
+        for i in range(len(input_dicts)):
+            self.incremental_forward(input_dicts[i])
 
         return self.sample_model(num_predicted_timesteps,
                                  num_samples,

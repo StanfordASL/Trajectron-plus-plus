@@ -25,23 +25,28 @@ class Scene(object):
         self.non_aug_scene = non_aug_scene
 
     def add_robot_from_nodes(self, robot_type):
-        nodes_list = [node for node in self.nodes if node.type == robot_type]
-        non_overlapping_nodes = MultiNode.find_non_overlapping_nodes(nodes_list, min_timesteps=3)
-        self.robot = MultiNode(robot_type, 'ROBOT', non_overlapping_nodes, is_robot=True)
+        scenes = [self]
+        if hasattr(self, 'augmented'):
+            scenes += self.augmented
 
-        for node in non_overlapping_nodes:
-            self.nodes.remove(node)
-        self.nodes.append(self.robot)
+        for scn in scenes:
+            nodes_list = [node for node in scn.nodes if node.type == robot_type]
+            non_overlapping_nodes = MultiNode.find_non_overlapping_nodes(nodes_list, min_timesteps=3)
+            scn.robot = MultiNode(robot_type, 'ROBOT', non_overlapping_nodes, is_robot=True)
 
-    def get_clipped_pos_dict(self, timestep, state):
-        pos_dict = dict()
+            for node in non_overlapping_nodes:
+                scn.nodes.remove(node)
+            scn.nodes.append(scn.robot)
+
+    def get_clipped_input_dict(self, timestep, state):
+        input_dict = dict()
         existing_nodes = self.get_nodes_clipped_at_time(timesteps=np.array([timestep]),
                                                         state=state)
         tr_scene = np.array([timestep, timestep])
         for node in existing_nodes:
-            pos_dict[node] = node.get(tr_scene, {'position': ['x', 'y']})
+            input_dict[node] = node.get(tr_scene, state[node.type])
 
-        return pos_dict
+        return input_dict
 
     def get_scene_graph(self,
                         timestep,
@@ -160,6 +165,7 @@ class Scene(object):
             return clipped_nodes
 
         tr_scene = np.array([timesteps.min(), timesteps.max()])
+        data_header_memo = dict()
         for node in all_nodes:
             if isinstance(node, MultiNode):
                 copied_node = copy.deepcopy(node.get_node_at_timesteps(tr_scene))
@@ -168,7 +174,16 @@ class Scene(object):
                 copied_node = copy.deepcopy(node)
 
             clipped_value = node.get(tr_scene, state[node.type])
-            copied_node.overwrite_data(clipped_value)
+
+            if node.type not in data_header_memo:
+                data_header = list()
+                for quantity, values in state[node.type].items():
+                    for value in values:
+                        data_header.append((quantity, value))
+
+                data_header_memo[node.type] = data_header
+
+            copied_node.overwrite_data(clipped_value, data_header_memo[node.type])
             copied_node.first_timestep = tr_scene[0]
 
             clipped_nodes.append(copied_node)

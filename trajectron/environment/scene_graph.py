@@ -292,7 +292,7 @@ class SceneGraph(object):
         other_types = set(node.type for node in other.nodes)
         all_node_types = our_types | other_types
 
-        new_neighbors = defaultdict(dict)
+        new_neighbors = defaultdict(lambda: defaultdict(set))
         for node in self.nodes:
             if node in removed_nodes:
                 continue
@@ -306,9 +306,9 @@ class SceneGraph(object):
                 for node_type in our_types:
                     neighbors = self.get_neighbors(node, node_type)
                     if len(neighbors) > 0:
-                        new_neighbors[node] = {DirectedEdge.get_edge_type(node, Node(node_type, None, None)): set(neighbors)}
+                        new_neighbors[node][DirectedEdge.get_edge_type(node, Node(node_type, None, None))] = set(neighbors)
 
-        removed_neighbors = defaultdict(dict)
+        removed_neighbors = defaultdict(lambda: defaultdict(set))
         for node in other.nodes:
             if node in removed_nodes:
                 continue
@@ -322,13 +322,13 @@ class SceneGraph(object):
                 for node_type in other_types:
                     neighbors = other.get_neighbors(node, node_type)
                     if len(neighbors) > 0:
-                        removed_neighbors[node] = {DirectedEdge.get_edge_type(node, Node(node_type, None, None)): set(neighbors)}
+                        removed_neighbors[node][DirectedEdge.get_edge_type(node, Node(node_type, None, None))] = set(neighbors)
 
         return new_nodes, removed_nodes, new_neighbors, removed_neighbors
 
 
 if __name__ == '__main__':
-    from data import NodeTypeEnum
+    from environment import NodeTypeEnum
     import time
 
     # # # # # # # # # # # # # # # # #

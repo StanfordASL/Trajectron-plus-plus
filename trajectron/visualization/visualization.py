@@ -1,5 +1,7 @@
 from utils import prediction_output_to_trajectories
+from scipy import linalg
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import matplotlib.patheffects as pe
 import numpy as np
 import seaborn as sns
@@ -87,3 +89,42 @@ def visualize_prediction(ax,
     if map is not None:
         ax.imshow(map.as_image(), origin='lower', alpha=0.5)
     plot_trajectories(ax, prediction_dict, histories_dict, futures_dict, *kwargs)
+
+
+def visualize_distribution(ax,
+                           prediction_distribution_dict,
+                           map=None,
+                           pi_threshold=0.05,
+                           **kwargs):
+    if map is not None:
+        ax.imshow(map.as_image(), origin='lower', alpha=0.5)
+
+    for node, pred_dist in prediction_distribution_dict.items():
+        if pred_dist.mus.shape[:2] != (1, 1):
+            return
+
+        means = pred_dist.mus.squeeze().cpu().numpy()
+        covs = pred_dist.get_covariance_matrix().squeeze().cpu().numpy()
+        pis = pred_dist.pis_cat_dist.probs.squeeze().cpu().numpy()
+
+        for timestep in range(means.shape[0]):
+            for z_val in range(means.shape[1]):
+                mean = means[timestep, z_val]
+                covar = covs[timestep, z_val]
+                pi = pis[timestep, z_val]
+
+                if pi < pi_threshold:
+                    continue
+
+                v, w = linalg.eigh(covar)
+                v = 2. * np.sqrt(2.) * np.sqrt(v)
+                u = w[0] / linalg.norm(w[0])
+
+                # Plot an ellipse to show the Gaussian component
+                angle = np.arctan(u[1] / u[0])
+                angle = 180. * angle / np.pi  # convert to degrees
+                ell = patches.Ellipse(mean, v[0], v[1], 180. + angle, color='blue' if node.type.name == 'VEHICLE' else 'orange')
+                ell.set_edgecolor(None)
+                ell.set_clip_box(ax.bbox)
+                ell.set_alpha(pi/10)
+                ax.add_artist(ell)

@@ -130,6 +130,22 @@ If you instead wanted to evaluate a trained model's performance on forecasting p
 
 These scripts will produce csv files in the `results` directory which can then be analyzed in the `NuScenes Quantitative.ipynb` notebook.
 
+## Online Execution ##
+As of December 2020, this repository includes an "online" running capability. In addition to the regular batched mode for training and testing, Trajectron++ can now be executed online on streaming data!
+
+The `trajectron/test_online.py` script shows how to use it, and can be run as follows (depending on the desired model).
+
+| Model                                     | Command                                                                                                                                                                                             | File Changes            |
+|-------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------|
+| Base                                      | python test_online.py --log_dir=../experiments/nuScenes/models --data_dir=../experiments/processed --conf=config.json --eval_data_dict=nuScenes_test_mini_full.pkl                                  | Line 110: `'vel_ee'`    |
+| +Dynamics Integration                     | python test_online.py --log_dir=../experiments/nuScenes/models --data_dir=../experiments/processed --conf=config.json --eval_data_dict=nuScenes_test_mini_full.pkl                                  | Line 110: `'int_ee'`    |
+| +Dynamics Integration, Maps               | python test_online.py --log_dir=../experiments/nuScenes/models --data_dir=../experiments/processed --conf=config.json --eval_data_dict=nuScenes_test_mini_full.pkl --map_encoding                   | Line 110: `'int_ee_me'` |
+| +Dynamics Integration, Maps, Robot Future | python test_online.py --log_dir=../experiments/nuScenes/models --data_dir=../experiments/processed --conf=config.json --eval_data_dict=nuScenes_test_mini_full.pkl --map_encoding --incl_robot_node | Line 110: `'robot'`     |
+
+Further, lines 145-151 can be changed to choose different scenes and starting timesteps.
+
+During running, each prediction will be iteratively visualized and saved in a `pred_figs/` folder within the specified model folder. For example, if the script loads the `int_ee` version of Trajectron++ then generated figures will be saved to `experiments/nuScenes/models/int_ee/pred_figs/`.
+
 ## Datasets ##
 
 ### ETH and UCY Pedestrian Datasets ###

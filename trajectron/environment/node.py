@@ -46,7 +46,7 @@ class Node(object):
     def __repr__(self):
         return '/'.join([self.type.name, self.id])
 
-    def overwrite_data(self, data, forward_in_time_on_next_overwrite=False):
+    def overwrite_data(self, data, header, forward_in_time_on_next_overwrite=False):
         """
         This function hard overwrites the data matrix. When using it you have to make sure that the columns
         in the new data matrix correspond to the old structure. As well as setting first_timestep.
@@ -55,7 +55,11 @@ class Node(object):
         :param forward_in_time_on_next_overwrite: On the !!NEXT!! call of overwrite_data first_timestep will be increased.
         :return:  None
         """
-        self.data.data = data
+        if header is None:
+            self.data.data = data
+        else:
+            self.data = DoubleHeaderNumpyArray(data, header)
+
         self._last_timestep = None
         if self.forward_in_time_on_next_override:
             self.first_timestep += 1

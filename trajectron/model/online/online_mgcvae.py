@@ -6,6 +6,7 @@ import numpy as np
 from collections import defaultdict, Counter
 from model.components import *
 from model.model_utils import *
+from model.dataset import get_relative_robot_traj
 import model.dynamics as dynamic_module
 from model.mgcvae import MultimodalGenerativeCVAE
 from environment.scene_graph import DirectedEdge
@@ -48,7 +49,8 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
 
         dynamic_class = getattr(dynamic_module, self.hyperparams['dynamic'][self.node_type]['name'])
         dyn_limits = hyperparams['dynamic'][self.node_type]['limits']
-        self.dynamic = dynamic_class(self.env.scenes[0].dt, dyn_limits, device, self.model_registrar, self.x_size)
+        self.dynamic = dynamic_class(self.env.scenes[0].dt, dyn_limits, device,
+                                     self.model_registrar, self.x_size, self.node_type)
 
     def create_graphical_model(self):
         """
@@ -127,11 +129,13 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
             if len(self.scene_graph.get_neighbors(self.node, self._get_other_node_type_from_edge(edge_type))) == 0:
                 del self.node_modules[edge_type + '/edge_encoder']
 
-    def obtain_encoded_tensors(self, mode, inputs, inputs_st, inputs_np, robot_present_and_future) -> (torch.Tensor,
-                                                                                                       torch.Tensor,
-                                                                                                       torch.Tensor,
-                                                                                                       torch.Tensor,
-                                                                                                       torch.Tensor):
+    def obtain_encoded_tensors(self,
+                               mode,
+                               inputs,
+                               inputs_st,
+                               inputs_np,
+                               robot_present_and_future,
+                               maps):
         x, x_r_t, y_r = None, None, None
         batch_size = 1
 
@@ -139,15 +143,19 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
         our_inputs_st = inputs_st[self.node]
 
         initial_dynamics = dict()
-        initial_dynamics['pos'] = our_inputs_st[:, 0:2]  # TODO: Generalize
-        initial_dynamics['vel'] = our_inputs_st[:, 2:4]  # TODO: Generalize
+        initial_dynamics['pos'] = our_inputs[:, 0:2]  # TODO: Generalize
+        initial_dynamics['vel'] = our_inputs[:, 2:4]  # TODO: Generalize
         self.dynamic.set_initial_condition(initial_dynamics)
 
         #########################################
         # Provide basic information to encoders #
         #########################################
         if self.hyperparams['incl_robot_node'] and self.robot is not None:
-            x_r_t, y_r = self.get_relative_robot_traj(our_inputs, robot_present_and_future, self.robot.type)
+            robot_present_and_future_st = get_relative_robot_traj(self.env, self.state,
+                                                                  our_inputs, robot_present_and_future,
+                                                                  self.node.type, self.robot.type)
+            x_r_t = robot_present_and_future_st[..., 0, :]
+            y_r = robot_present_and_future_st[..., 1:, :]
 
         ##################
         # Encode History #
@@ -194,6 +202,21 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
         self.TD = {'node_history_encoded': node_history_encoded,
                    'total_edge_influence': total_edge_influence}
 
+        ################
+        # Map Encoding #
+        ################
+        if self.hyperparams['use_map_encoding'] and self.node_type in self.hyperparams['map_encoder']:
+            if self.node not in maps:
+                # This means the node was removed (it is only being kept around because of the edge removal filter).
+                me_params = self.hyperparams['map_encoder'][self.node_type]
+                self.TD['encoded_map'] = torch.zeros((1, me_params['output_size']))
+            else:
+                encoded_map = self.node_modules[self.node_type + '/map_encoder'](maps[self.node] * 2. - 1.,
+                                                                                 (mode == ModeKeys.TRAIN))
+                do = self.hyperparams['map_encoder'][self.node_type]['dropout']
+                encoded_map = F.dropout(encoded_map, do, training=(mode == ModeKeys.TRAIN))
+                self.TD['encoded_map'] = encoded_map
+
         ######################################
         # Concatenate Encoder Outputs into x #
         ######################################
@@ -207,6 +230,8 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
         node_history_encoded = TD['node_history_encoded']
         if self.hyperparams['edge_encoding']:
             total_edge_influence = TD['total_edge_influence']
+        if self.hyperparams['use_map_encoding'] and self.node_type in self.hyperparams['map_encoder']:
+            encoded_map = TD['encoded_map']
 
         if (self.hyperparams['incl_robot_node']
                 and self.robot is not None
@@ -222,6 +247,8 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
             node_history_encoded = TD['node_history_encoded'].repeat(robot_future_st.size()[0], 1)
             if self.hyperparams['edge_encoding']:
                 total_edge_influence = TD['total_edge_influence'].repeat(robot_future_st.size()[0], 1)
+            if self.hyperparams['use_map_encoding'] and self.node_type in self.hyperparams['map_encoder']:
+                encoded_map = TD['encoded_map'].repeat(robot_future_st.size()[0], 1)
 
         elif self.hyperparams['incl_robot_node'] and self.robot is not None:
             # Four times because we're trying to mimic a bi-directional RNN's output (which is c and h from both ends).
@@ -238,6 +265,9 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
 
         if self.hyperparams['incl_robot_node'] and self.robot is not None:
             x_concat_list.append(robot_future_encoder)  # [bs/nbs, 4*enc_rnn_dim_history]
+
+        if self.hyperparams['use_map_encoding'] and self.node_type in self.hyperparams['map_encoder']:
+            x_concat_list.append(encoded_map)  # [bs/nbs, CNN output size]
 
         return torch.cat(x_concat_list, dim=1)
 
@@ -258,13 +288,19 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
         edge_states_list = list()  # list of [#of neighbors, max_ht, state_dim]
         neighbor_states = list()
 
-        rel_state = inputs[self.node].cpu().numpy()
+        orig_rel_state = inputs[self.node].cpu().numpy()
         for node in connected_nodes[0]:
             neighbor_state_np = inputs_np[node]
 
             # Make State relative to node
             _, std = self.env.get_standardize_params(self.state[node.type], node_type=node.type)
             std[0:2] = self.env.attention_radius[edge_type_tuple]
+
+            # TODO: This all makes the unsafe assumption that the first n dims
+            #  refer to the same quantities even for different agent types!
+            equal_dims = np.min((neighbor_state_np.shape[-1], orig_rel_state.shape[-1]))
+            rel_state = np.zeros_like(neighbor_state_np)
+            rel_state[..., :equal_dims] = orig_rel_state[..., :equal_dims]
             neighbor_state_np_st = self.env.standardize(neighbor_state_np,
                                                         self.state[node.type],
                                                         node_type=node.type,
@@ -333,7 +369,7 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
         else:
             return outputs[:, 0, :]  # [bs, enc_rnn_dim]
 
-    def encoder_forward(self, inputs, inputs_st, inputs_np, robot_present_and_future=None):
+    def encoder_forward(self, inputs, inputs_st, inputs_np, robot_present_and_future=None, maps=None):
         # Always predicting with the online model.
         mode = ModeKeys.PREDICT
 
@@ -341,7 +377,9 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
                                              inputs,
                                              inputs_st,
                                              inputs_np,
-                                             robot_present_and_future)
+                                             robot_present_and_future,
+                                             maps)
+        self.n_s_t0 = inputs_st[self.node]
 
         self.latent.p_dist = self.p_z_x(mode, self.x)
 
@@ -361,16 +399,21 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
         if (self.hyperparams['incl_robot_node']
                 and self.robot is not None
                 and robot_present_and_future is not None):
-            x_nr_t, y_r = self.get_relative_robot_traj(
-                torch.tensor(self.node.get(np.array([self.node.last_timestep]),
-                                           self.state[self.node.type],
-                                           padding=0.0),
-                             dtype=torch.float,
-                             device=self.device),
-                robot_present_and_future,
-                self.robot.type)
+            our_inputs = torch.tensor(self.node.get(np.array([self.node.last_timestep]),
+                                                    self.state[self.node.type],
+                                                    padding=0.0),
+                                      dtype=torch.float,
+                                      device=self.device)
+            robot_present_and_future_st = get_relative_robot_traj(self.env, self.state,
+                                                                  our_inputs, robot_present_and_future,
+                                                                  self.node.type, self.robot.type)
+            x_nr_t = robot_present_and_future_st[..., 0, :]
+            y_r = robot_present_and_future_st[..., 1:, :]
             self.x = self.create_encoder_rep(mode, self.TD, x_nr_t, y_r)
             self.latent.p_dist = self.p_z_x(mode, self.x)
+
+            # Making sure n_s_t0 has the same batch size as x_nr_t
+            self.n_s_t0 = self.n_s_t0[[0]].repeat(x_nr_t.size()[0], 1)
 
         z, num_samples, num_components = self.latent.sample_p(num_samples,
                                                               mode,
@@ -378,10 +421,10 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
                                                               full_dist=full_dist,
                                                               all_z_sep=all_z_sep)
 
-        _, our_sampled_future = self.p_y_xz(mode, self.x, x_nr_t, y_r, z,
-                                            prediction_horizon,
-                                            num_samples,
-                                            num_components,
-                                            gmm_mode)
+        y_dist, our_sampled_future = self.p_y_xz(mode, self.x, x_nr_t, y_r, self.n_s_t0, z,
+                                                 prediction_horizon,
+                                                 num_samples,
+                                                 num_components,
+                                                 gmm_mode)
 
-        return our_sampled_future
+        return y_dist, our_sampled_future

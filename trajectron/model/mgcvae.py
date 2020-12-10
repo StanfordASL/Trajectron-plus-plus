@@ -367,10 +367,11 @@ class MultimodalGenerativeCVAE(object):
                                neighbors_edge_value,
                                robot,
                                map) -> (torch.Tensor,
-                                          torch.Tensor,
-                                          torch.Tensor,
-                                          torch.Tensor,
-                                          torch.Tensor):
+                                        torch.Tensor,
+                                        torch.Tensor,
+                                        torch.Tensor,
+                                        torch.Tensor,
+                                        torch.Tensor):
         """
         Encodes input and output tensors for node and robot.
 
@@ -471,7 +472,7 @@ class MultimodalGenerativeCVAE(object):
             if self.log_writer and (self.curr_iter + 1) % 500 == 0:
                 map_clone = map.clone()
                 map_patch = self.hyperparams['map_encoder'][self.node_type]['patch_size']
-                map_clone[:, :, map_patch[1]-5:map_patch[1]+5, map_patch[0]-5:map_patch[0]+5] = 1.
+                map_clone[:, :, map_patch[1] - 5:map_patch[1] + 5, map_patch[0] - 5:map_patch[0] + 5] = 1.
                 self.log_writer.add_images(f"{self.node_type}/cropped_maps", map_clone,
                                            self.curr_iter, dataformats='NCWH')
 
@@ -812,10 +813,10 @@ class MultimodalGenerativeCVAE(object):
         state = initial_state
         if self.hyperparams['incl_robot_node']:
             input_ = torch.cat([zx,
-                                a_0.repeat(num_samples*num_components, 1),
-                                x_nr_t.repeat(num_samples*num_components, 1)], dim=1)
+                                a_0.repeat(num_samples * num_components, 1),
+                                x_nr_t.repeat(num_samples * num_components, 1)], dim=1)
         else:
-            input_ = torch.cat([zx, a_0.repeat(num_samples*num_components, 1)], dim=1)
+            input_ = torch.cat([zx, a_0.repeat(num_samples * num_components, 1)], dim=1)
 
         for j in range(ph):
             h_state = cell(input_, state)
@@ -989,7 +990,7 @@ class MultimodalGenerativeCVAE(object):
 
         z, kl = self.encoder(mode, x, y_e)
         log_p_y_xz = self.decoder(mode, x, x_nr_t, y, y_r, n_s_t0, z,
-                                  labels, # Loss is calculated on unstandardized label
+                                  labels,  # Loss is calculated on unstandardized label
                                   prediction_horizon,
                                   self.hyperparams['k'])
 

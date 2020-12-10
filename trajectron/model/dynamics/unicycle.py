@@ -62,6 +62,12 @@ class Unicycle(Dynamic):
         ph = control_samples.shape[-2]
         p_0 = self.initial_conditions['pos'].unsqueeze(1)
         v_0 = self.initial_conditions['vel'].unsqueeze(1)
+
+        # In case the input is batched because of the robot in online use we repeat this to match the batch size of x.
+        if p_0.size()[0] != x.size()[0]:
+            p_0 = p_0.repeat(x.size()[0], 1, 1)
+            v_0 = v_0.repeat(x.size()[0], 1, 1)
+
         phi_0 = torch.atan2(v_0[..., 1], v_0[..., 0])
 
         phi_0 = phi_0 + torch.tanh(self.p0_model(torch.cat((x, phi_0), dim=-1)))
@@ -193,6 +199,12 @@ class Unicycle(Dynamic):
         ph = control_dist_dphi_a.mus.shape[-3]
         p_0 = self.initial_conditions['pos'].unsqueeze(1)
         v_0 = self.initial_conditions['vel'].unsqueeze(1)
+
+        # In case the input is batched because of the robot in online use we repeat this to match the batch size of x.
+        if p_0.size()[0] != x.size()[0]:
+            p_0 = p_0.repeat(x.size()[0], 1, 1)
+            v_0 = v_0.repeat(x.size()[0], 1, 1)
+
         phi_0 = torch.atan2(v_0[..., 1], v_0[..., 0])
 
         phi_0 = phi_0 + torch.tanh(self.p0_model(torch.cat((x, phi_0), dim=-1)))
