@@ -46,7 +46,7 @@ cd experiments/nuScenes
 python process_data.py --data=./v1.0-mini --version="v1.0-mini" --output_path=../processed
 
 # For the full nuScenes dataset, use the following
-python process_data.py --data=./v1.0 --version="v1.0" --output_path=../processed
+python process_data.py --data=./v1.0 --version="v1.0-trainval" --output_path=../processed
 ```
 In case you also want a validation set generated (by default this will just produce the training and test sets), replace line 406 in `process_data.py` with:
 ```
