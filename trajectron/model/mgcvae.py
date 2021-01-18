@@ -528,7 +528,7 @@ class MultimodalGenerativeCVAE(object):
 
         last_index_per_sequence = -(first_history_indices + 1)
 
-        return outputs[torch.arange(first_history_indices.shape[0]), last_index_per_sequence]
+        return outputs[torch.arange(first_history_indices.shape[0]), last_index_per_sequence.long()]
 
     def encode_edge(self,
                     mode,
@@ -606,7 +606,7 @@ class MultimodalGenerativeCVAE(object):
                             training=(mode == ModeKeys.TRAIN))  # [bs, max_time, enc_rnn_dim]
 
         last_index_per_sequence = -(first_history_indices + 1)
-        ret = outputs[torch.arange(last_index_per_sequence.shape[0]), last_index_per_sequence]
+        ret = outputs[torch.arange(last_index_per_sequence.shape[0]), last_index_per_sequence.long()]
         if self.hyperparams['dynamic_edges'] == 'yes':
             return ret * combined_edge_masks
         else:

@@ -8,6 +8,7 @@ sys.path.append("../../trajectron")
 from environment import Environment, Scene, Node
 from utils import maybe_makedirs
 from environment import derivative_of
+from experiments.pedestrians.augment_function import augment
 
 desired_max_time = 100
 pred_indices = [2, 3]
@@ -69,12 +70,6 @@ def augment_scene(scene, angle):
         node = Node(node_type=node.type, node_id=node.id, data=node_data, first_timestep=node.first_timestep)
 
         scene_aug.nodes.append(node)
-    return scene_aug
-
-
-def augment(scene):
-    scene_aug = np.random.choice(scene.augmented)
-    scene_aug.temporal_scene_graph = scene.temporal_scene_graph
     return scene_aug
 
 

@@ -16,6 +16,7 @@ from nuscenes.nuscenes import NuScenes
 from nuscenes.map_expansion.map_api import NuScenesMap
 from nuscenes.utils.splits import create_splits_scenes
 from environment import Environment, Scene, Node, GeometricMap, derivative_of
+from experiments.nuScenes.augment_function import augment
 
 scene_blacklist = [499, 515, 517]
 
@@ -149,13 +150,6 @@ def augment_scene(scene, angle):
                         non_aug_node=node)
 
         scene_aug.nodes.append(node)
-    return scene_aug
-
-
-def augment(scene):
-    scene_aug = np.random.choice(scene.augmented)
-    scene_aug.temporal_scene_graph = scene.temporal_scene_graph
-    scene_aug.map = scene.map
     return scene_aug
 
 
