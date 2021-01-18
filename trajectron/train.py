@@ -265,7 +265,7 @@ def main():
 
                 if not args.debug:
                     log_writer.add_scalar(f"{node_type}/train/learning_rate",
-                                          lr_scheduler[node_type].get_lr()[0],
+                                          lr_scheduler[node_type].get_last_lr()[0],
                                           curr_iter)
                     log_writer.add_scalar(f"{node_type}/train/loss", train_loss, curr_iter)
 
