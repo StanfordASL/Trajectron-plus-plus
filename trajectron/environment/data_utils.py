@@ -20,10 +20,14 @@ def derivative_of(x, dt=1, radian=False):
     if radian:
         x = make_continuous_copy(x)
 
-    if x[~np.isnan(x)].shape[-1] < 2:
+    not_nan_mask = ~np.isnan(x)
+    masked_x = x[not_nan_mask]
+
+    if masked_x.shape[-1] < 2:
         return np.zeros_like(x)
 
     dx = np.full_like(x, np.nan)
-    dx[~np.isnan(x)] = np.gradient(x[~np.isnan(x)], dt)
+    dx[not_nan_mask] = np.ediff1d(masked_x, to_begin=(masked_x[1] - masked_x[0])) / dt
 
     return dx
+
