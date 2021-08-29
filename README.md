@@ -16,6 +16,8 @@ git submodule init # Initializing our local configuration file
 git submodule update # Fetching all of the data from the submodules at the specified commits
 ```
 
+**NOTE:** If you would like to use the code as it was for ECCV 2020, please check out the `eccv2020` branch. The `master` branch will differ as new updates are made to the codebase (including potential non-interoperabilities between the two versions).
+
 ### Environment Setup ###
 First, we'll create a conda environment to hold the dependencies.
 ```
