@@ -121,8 +121,8 @@ class OnlineMultimodalGenerativeCVAE(MultimodalGenerativeCVAE):
 
     def _get_edge_type_from_str(self, edge_type_str):
         n1_type_str, n2_type_str = edge_type_str.split('->')
-        return (NodeType(n1_type_str, self.env.node_type_list.index(n1_type_str) + 1),
-                NodeType(n2_type_str, self.env.node_type_list.index(n2_type_str) + 1))
+        return (self.env.NodeType[self.env.NodeType.node_type_list.index(n1_type_str)],
+                self.env.NodeType[self.env.NodeType.node_type_list.index(n2_type_str)])
 
     def remove_edge_model(self, edge_type):
         if self.hyperparams['edge_encoding']:
