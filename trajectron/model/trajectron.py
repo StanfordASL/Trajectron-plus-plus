@@ -64,7 +64,7 @@ class Trajectron(object):
         else:
             self.node_models_dict[node_type].step_annealers()
 
-    def train_loss(self, batch, node_type):
+    def train_loss(self, batch, node_type, lambda_kalman=0.0):
         (first_history_index,
          x_t, y_t, x_st_t, y_st_t,
          neighbors_data_st,
@@ -81,6 +81,11 @@ class Trajectron(object):
         if type(map) == torch.Tensor:
             map = map.to(self.device)
 
+        if lambda_kalman > 0.0:
+            score = None
+        else:
+            score = None
+
         # Run forward pass
         model = self.node_models_dict[node_type]
         loss = model.train_loss(inputs=x,
@@ -92,8 +97,9 @@ class Trajectron(object):
                                 neighbors_edge_value=restore(neighbors_edge_value),
                                 robot=robot_traj_st_t,
                                 map=map,
-                                prediction_horizon=self.ph)
-
+                                prediction_horizon=self.ph,
+                                lambda_kalman=lambda_kalman,
+                                score=score)
         return loss
 
     def eval_loss(self, batch, node_type):

@@ -20,6 +20,8 @@ from model.dataset import EnvironmentDataset, collate
 from tensorboardX import SummaryWriter
 # torch.autograd.set_detect_anomaly(True)
 
+LAMBDA_KALMAN = 0
+
 if not torch.cuda.is_available() or args.device == 'cpu':
     args.device = torch.device('cpu')
 else:
@@ -252,7 +254,7 @@ def main():
                 trajectron.set_curr_iter(curr_iter)
                 trajectron.step_annealers(node_type)
                 optimizer[node_type].zero_grad()
-                train_loss = trajectron.train_loss(batch, node_type)
+                train_loss = trajectron.train_loss(batch, node_type, lambda_kalman=LAMBDA_KALMAN)
                 pbar.set_description(f"Epoch {epoch}, {node_type} L: {train_loss.item():.2f}")
                 train_loss.backward()
                 # Clipping gradients.

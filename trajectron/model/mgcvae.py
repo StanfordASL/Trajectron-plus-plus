@@ -7,6 +7,30 @@ from model.model_utils import *
 import model.dynamics as dynamic_module
 from environment.scene_graph import DirectedEdge
 
+def contrastive_three_modes_loss(features, scores, temp=0.1, base_temperature=0.07):
+    device = (torch.device('cuda') if features.is_cuda
+              else torch.device('cpu'))
+    batch_size = features.shape[0]
+    scores = scores.contiguous().view(-1, 1)
+    mask_positives = (torch.abs(scores.sub(scores.T)) < 0.1).float().to(device)
+    mask_negatives = (torch.abs(scores.sub(scores.T)) > 2.0).float().to(device)
+    mask_neutral = mask_positives + mask_negatives
+
+    anchor_dot_contrast = torch.div(torch.matmul(features, features.T), temp)
+    logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
+    logits = anchor_dot_contrast - logits_max.detach()
+
+    logits_mask = torch.scatter(
+        torch.ones_like(mask_positives), 1,
+        torch.arange(batch_size).view(-1, 1).to(device), 0) * mask_neutral
+    mask_positives = mask_positives * logits_mask
+    exp_logits = torch.exp(logits) * logits_mask
+    log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True) + 1e-20)
+    mean_log_prob_pos = (mask_positives * log_prob).sum(1) / (mask_positives.sum(1) + 1e-20)
+
+    loss = - (temp / base_temperature) * mean_log_prob_pos
+    loss = loss.view(1, batch_size).mean()
+    return loss, mask_positives.sum(1).mean(), mask_negatives.sum(1).mean()
 
 class MultimodalGenerativeCVAE(object):
     def __init__(self,
@@ -227,6 +251,10 @@ class MultimodalGenerativeCVAE(object):
 
         self.x_size = x_size
         self.z_size = z_size
+
+        self.add_submodule(self.node_type + '/con_head',
+                            model_if_absent=nn.Linear(232, 232))
+
 
     def create_edge_models(self, edge_types):
         for edge_type in edge_types:
@@ -958,7 +986,9 @@ class MultimodalGenerativeCVAE(object):
                    neighbors_edge_value,
                    robot,
                    map,
-                   prediction_horizon) -> torch.Tensor:
+                   prediction_horizon,
+                   lambda_kalman=0.0,
+                   score=None) -> torch.Tensor:
         """
         Calculates the training loss for a batch.
 
@@ -1002,6 +1032,20 @@ class MultimodalGenerativeCVAE(object):
 
         ELBO = log_likelihood - self.kl_weight * kl + 1. * mutual_inf_p
         loss = -ELBO
+
+        ### ADD CONTRASTIVE LOSS
+        if lambda_kalman > 0:
+            cell = self.node_modules[self.node_type + '/decoder/rnn_cell']
+            initial_h_model = self.node_modules[self.node_type + '/decoder/initial_h']
+            initial_state = initial_h_model(x)
+            a_0 = self.node_modules[self.node_type + '/decoder/state_action'](n_s_t0)
+            state = initial_state
+            input_ = torch.cat([x, a_0.repeat(1, NUM_PREDICTIONS)], dim=1)
+            features = torch.cat([input_, state], dim=1)    
+            features = F.normalize(self.node_modules[self.node_type + '/con_head'](features), dim=1)
+            con_loss, positive, negative = contrastive_three_modes_loss(features, score, temp=temp)
+            loss = loss + lambda_kalman * con_loss
+
 
         if self.hyperparams['log_histograms'] and self.log_writer is not None:
             self.log_writer.add_histogram('%s/%s' % (str(self.node_type), 'log_p_y_xz'),
