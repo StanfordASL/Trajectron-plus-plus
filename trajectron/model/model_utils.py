@@ -6,6 +6,7 @@ import numpy as np
 import math
 
 
+
 class ModeKeys(Enum):
     TRAIN = 1
     EVAL = 2
@@ -123,3 +124,128 @@ def rgetattr(obj, attr, *args):
     def _getattr(obj, attr):
         return getattr(obj, attr, *args)
     return functools.reduce(_getattr, [obj] + attr.split('.'))
+
+def estimate_kalman_filter(history, prediction_horizon):
+    """
+    Predict the future position by running the kalman filter.
+
+    :param history: 2d array of shape (length_of_history, 2)
+    :param prediction_horizon: how many steps in the future to predict
+    :return: the predicted position (x, y)
+    """
+    length_history = history.shape[0]
+    z_x = history[:, 0]
+    z_y = history[:, 1]
+    v_x = 0
+    v_y = 0
+    for index in range(length_history - 1):
+        v_x += z_x[index + 1] - z_x[index]
+        v_y += z_y[index + 1] - z_y[index]
+    v_x = v_x / (length_history - 1)
+    v_y = v_y / (length_history - 1)
+    x_x = np.zeros(length_history + 1, np.float32)
+    x_y = np.zeros(length_history + 1, np.float32)
+    P_x = np.zeros(length_history + 1, np.float32)
+    P_y = np.zeros(length_history + 1, np.float32)
+    P_vx = np.zeros(length_history + 1, np.float32)
+    P_vy = np.zeros(length_history + 1, np.float32)
+
+    # we initialize the uncertainty to one (unit gaussian)
+    P_x[0] = 1.0
+    P_y[0] = 1.0
+    P_vx[0] = 1.0
+    P_vy[0] = 1.0
+    x_x[0] = z_x[0]
+    x_y[0] = z_y[0]
+
+    Q = 0.00001
+    R = 0.0001
+    K_x = np.zeros(length_history + 1, np.float32)
+    K_y = np.zeros(length_history + 1, np.float32)
+    K_vx = np.zeros(length_history + 1, np.float32)
+    K_vy = np.zeros(length_history + 1, np.float32)
+    for k in range(length_history - 1):
+        x_x[k + 1] = x_x[k] + v_x
+        x_y[k + 1] = x_y[k] + v_y
+        P_x[k + 1] = P_x[k] + P_vx[k] + Q
+        P_y[k + 1] = P_y[k] + P_vy[k] + Q
+        P_vx[k + 1] = P_vx[k] + Q
+        P_vy[k + 1] = P_vy[k] + Q
+        K_x[k + 1] = P_x[k + 1] / (P_x[k + 1] + R)
+        K_y[k + 1] = P_y[k + 1] / (P_y[k + 1] + R)
+        x_x[k + 1] = x_x[k + 1] + K_x[k + 1] * (z_x[k + 1] - x_x[k + 1])
+        x_y[k + 1] = x_y[k + 1] + K_y[k + 1] * (z_y[k + 1] - x_y[k + 1])
+        P_x[k + 1] = P_x[k + 1] - K_x[k + 1] * P_x[k + 1]
+        P_y[k + 1] = P_y[k + 1] - K_y[k + 1] * P_y[k + 1]
+        K_vx[k + 1] = P_vx[k + 1] / (P_vx[k + 1] + R)
+        K_vy[k + 1] = P_vy[k + 1] / (P_vy[k + 1] + R)
+        P_vx[k + 1] = P_vx[k + 1] - K_vx[k + 1] * P_vx[k + 1]
+        P_vy[k + 1] = P_vy[k + 1] - K_vy[k + 1] * P_vy[k + 1]
+
+    k = k + 1
+    x_x[k + 1] = x_x[k] + v_x * prediction_horizon
+    x_y[k + 1] = x_y[k] + v_y * prediction_horizon
+    P_x[k + 1] = P_x[k] + P_vx[k] * prediction_horizon * prediction_horizon + Q
+    P_y[k + 1] = P_y[k] + P_vy[k] * prediction_horizon * prediction_horizon + Q
+    P_vx[k + 1] = P_vx[k] + Q
+    P_vy[k + 1] = P_vy[k] + Q
+    return x_x[k + 1], x_y[k + 1]
+
+def get_kalman_class(history, future, min_future_timesteps=12, class_type=None, err_type='avg'):
+    # remove velocity and acceleration information from history
+    positions = history[:, :2]
+
+    class_val = 0
+    error = None
+
+    if class_type is None:
+        class_val = None
+
+    if class_type == 'vel':
+        velocity = history[:, 2:4]
+        speed = np.linalg.norm(velocity, axis=1)
+        class_val = np.mean(speed)
+
+    if class_type == 'acc':
+        acceleration = history[:, 4:]
+        norm = np.linalg.norm(acceleration, axis=1)
+        class_val = np.mean(norm)
+
+    if class_type == 'angular_vel':
+        velocity = history[:, 2:4]
+        theta = np.arctan2(velocity[:, 1], velocity[:, 0])
+        class_val = max(theta)
+
+    if class_type == 'angular_acc':
+        acceleration = history[:, 4:]
+        theta = np.arctan2(acceleration[:, 1], acceleration[:, 0])
+        class_val = max(theta)
+
+    if class_type == 'curvature':
+        a = positions[0]
+        b = positions[-1]
+        c = positions[int(positions.shape[0] / 2)]
+        cur = curvature(a, b, c)
+        if not cur:
+            cur = 0
+        class_val = cur
+
+    if err_type == 'avg':
+        pred = [estimate_kalman_filter(history=positions, prediction_horizon=i)
+                for i in range(1, min_future_timesteps + 1)]
+        pred = np.array(pred)
+        diff = future - pred
+        error = np.linalg.norm(diff, axis=1)
+        error = np.mean(error)
+
+    if err_type == 'one-step':
+        pred = estimate_kalman_filter(history=positions, prediction_horizon=1)
+        diff = future[0, :] - pred
+        error = np.linalg.norm(diff)
+
+    if err_type == 'final':
+        pred = estimate_kalman_filter(history=positions, prediction_horizon=min_future_timesteps)
+        diff = future[-1, :] - pred
+        error = np.linalg.norm(diff)
+
+    return error, class_val

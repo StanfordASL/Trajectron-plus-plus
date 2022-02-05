@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from model.mgcvae import MultimodalGenerativeCVAE
 from model.dataset import get_timesteps_data, restore
-
+from model.model_utils import get_kalman_class
 
 class Trajectron(object):
     def __init__(self, model_registrar,
@@ -82,9 +82,11 @@ class Trajectron(object):
             map = map.to(self.device)
 
         if lambda_kalman > 0.0:
-            score = None
+            kalman_score_class = [get_kalman_class(x[i,:,:], y[i,:,:]) for i in range(x.shape[0])]
+            score = np.array(kalman_score_class, dtype=float)[:,0]
+            score_t = torch.tensor(score, dtype=torch.float)
         else:
-            score = None
+            score_t = None
 
         # Run forward pass
         model = self.node_models_dict[node_type]
@@ -99,7 +101,7 @@ class Trajectron(object):
                                 map=map,
                                 prediction_horizon=self.ph,
                                 lambda_kalman=lambda_kalman,
-                                score=score)
+                                score=score_t)
         return loss
 
     def eval_loss(self, batch, node_type):
