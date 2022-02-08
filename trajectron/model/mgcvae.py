@@ -253,7 +253,7 @@ class MultimodalGenerativeCVAE(object):
         self.z_size = z_size
 
         self.add_submodule(self.node_type + '/con_head',
-                            model_if_absent=nn.Linear(232, 232))
+                            model_if_absent=nn.Linear(219, 219))
 
 
     def create_edge_models(self, edge_types):
@@ -824,7 +824,6 @@ class MultimodalGenerativeCVAE(object):
         """
         ph = prediction_horizon
         pred_dim = self.pred_state_length
-
         z = torch.reshape(z_stacked, (-1, self.latent.z_dim))
         zx = torch.cat([z, x.repeat(num_samples * num_components, 1)], dim=1)
 
@@ -845,6 +844,9 @@ class MultimodalGenerativeCVAE(object):
                                 x_nr_t.repeat(num_samples * num_components, 1)], dim=1)
         else:
             input_ = torch.cat([zx, a_0.repeat(num_samples * num_components, 1)], dim=1)
+
+        ### FOR CONTRASTIVE LOSS
+        features = torch.cat([input_, state], dim=1)
 
         for j in range(ph):
             h_state = cell(input_, state)
@@ -911,7 +913,7 @@ class MultimodalGenerativeCVAE(object):
             sampled_future = self.dynamic.integrate_samples(a_sample, x)
             return y_dist, sampled_future
         else:
-            return y_dist
+            return y_dist, features
 
     def encoder(self, mode, x, y_e, num_samples=None):
         """
@@ -967,14 +969,14 @@ class MultimodalGenerativeCVAE(object):
         """
 
         num_components = self.hyperparams['N'] * self.hyperparams['K']
-        y_dist = self.p_y_xz(mode, x, x_nr_t, y_r, n_s_t0, z,
+        y_dist, features = self.p_y_xz(mode, x, x_nr_t, y_r, n_s_t0, z,
                              prediction_horizon, num_samples, num_components=num_components)
         log_p_yt_xz = torch.clamp(y_dist.log_prob(labels), max=self.hyperparams['log_p_yt_xz_max'])
         if self.hyperparams['log_histograms'] and self.log_writer is not None:
             self.log_writer.add_histogram('%s/%s' % (str(self.node_type), 'log_p_yt_xz'), log_p_yt_xz, self.curr_iter)
 
         log_p_y_xz = torch.sum(log_p_yt_xz, dim=2)
-        return log_p_y_xz
+        return log_p_y_xz, features
 
     def train_loss(self,
                    inputs,
@@ -1019,7 +1021,7 @@ class MultimodalGenerativeCVAE(object):
                                                                      map=map)
 
         z, kl = self.encoder(mode, x, y_e)
-        log_p_y_xz = self.decoder(mode, x, x_nr_t, y, y_r, n_s_t0, z,
+        log_p_y_xz, features = self.decoder(mode, x, x_nr_t, y, y_r, n_s_t0, z,
                                   labels,  # Loss is calculated on unstandardized label
                                   prediction_horizon,
                                   self.hyperparams['k'])
@@ -1035,15 +1037,11 @@ class MultimodalGenerativeCVAE(object):
 
         ### ADD CONTRASTIVE LOSS
         if lambda_kalman > 0:
-            cell = self.node_modules[self.node_type + '/decoder/rnn_cell']
-            initial_h_model = self.node_modules[self.node_type + '/decoder/initial_h']
-            initial_state = initial_h_model(x)
-            a_0 = self.node_modules[self.node_type + '/decoder/state_action'](n_s_t0)
-            state = initial_state
-            input_ = torch.cat([x, a_0.repeat(1, NUM_PREDICTIONS)], dim=1)
-            features = torch.cat([input_, state], dim=1)    
+            num_components = self.hyperparams['N'] * self.hyperparams['K']
+            num_samples = self.hyperparams['k']
+            score = score.repeat(num_samples * num_components)
             features = F.normalize(self.node_modules[self.node_type + '/con_head'](features), dim=1)
-            con_loss, positive, negative = contrastive_three_modes_loss(features, score, temp=temp)
+            con_loss, positive, negative = contrastive_three_modes_loss(features, score)
             loss = loss + lambda_kalman * con_loss
 
 

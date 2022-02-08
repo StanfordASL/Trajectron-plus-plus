@@ -194,6 +194,8 @@ def estimate_kalman_filter(history, prediction_horizon):
 def get_kalman_class(history, future, min_future_timesteps=12, class_type=None, err_type='avg'):
     # remove velocity and acceleration information from history
     positions = history[:, :2]
+    positions = np.array(positions.cpu())
+    future = np.array(future.cpu())
 
     class_val = 0
     error = None
