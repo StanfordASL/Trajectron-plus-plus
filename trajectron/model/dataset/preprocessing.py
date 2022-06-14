@@ -151,17 +151,17 @@ def get_node_timestep_data(env, scene, t, node, state, pred_state,
 
     # Robot
     robot_traj_st_t = None
-    timestep_range_r = np.array([t, t + max_ft])
     if hyperparams['incl_robot_node']:
-        x_node = node.get(timestep_range_r, state[node.type])
+        timestep_range_r = np.array([t, t + max_ft])
         if scene.non_aug_scene is not None:
             robot = scene.get_node_by_id(scene.non_aug_scene.robot.id)
         else:
             robot = scene.robot
         robot_type = robot.type
-        robot_traj = robot.get(timestep_range_r, state[robot_type], padding=np.nan)
-        robot_traj_st_t = get_relative_robot_traj(env, state, x_node, robot_traj, node.type, robot_type)
-        robot_traj_st_t[torch.isnan(robot_traj_st_t)] = 0.0
+        robot_traj = robot.get(timestep_range_r, state[robot_type], padding=0.0)
+        node_state = np.zeros_like(robot_traj[0])
+        node_state[:x.shape[1]] = x[-1]
+        robot_traj_st_t = get_relative_robot_traj(env, state, node_state, robot_traj, node.type, robot_type)
 
     # Map
     map_tuple = None
