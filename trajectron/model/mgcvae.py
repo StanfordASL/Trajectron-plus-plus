@@ -1093,7 +1093,7 @@ class MultimodalGenerativeCVAE(object):
                 num_samples,
                 z_mode=False,
                 gmm_mode=False,
-                full_dist=True,
+                full_dist=False,
                 all_z_sep=False):
         """
         Predicts the future of a batch of nodes.
@@ -1115,7 +1115,9 @@ class MultimodalGenerativeCVAE(object):
         :return:
         """
         mode = ModeKeys.PREDICT
-
+        if not z_mode or all_z_sep:
+            full_dist = True
+        
         x, x_nr_t, _, y_r, _, n_s_t0 = self.obtain_encoded_tensors(mode=mode,
                                                                    inputs=inputs,
                                                                    inputs_st=inputs_st,
