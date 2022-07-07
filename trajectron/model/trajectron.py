@@ -137,7 +137,7 @@ class Trajectron(object):
                 min_history_timesteps=1,
                 z_mode=False,
                 gmm_mode=False,
-                full_dist=True,
+                full_dist=False,
                 all_z_sep=False):
 
         predictions_dict = {}
