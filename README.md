@@ -1,3 +1,5 @@
+**NOTE**: A new version of the Trajectron++ codebase has been released! Check it out [here](https://github.com/NVlabs/adaptive-prediction)!
+
 <p align="center"><img width="100%" src="img/Trajectron++.png"/></p>
 
 # Trajectron++: Dynamically-Feasible Trajectory Forecasting With Heterogeneous Data #
