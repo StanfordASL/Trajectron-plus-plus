@@ -7,6 +7,11 @@ from model.model_utils import *
 import model.dynamics as dynamic_module
 from environment.scene_graph import DirectedEdge
 
+def pareto(a):
+    nu = 100
+    epsilon = 0.01
+    p = (1 + epsilon * a / nu) ** -(1/epsilon + 1)
+    return p
 
 class MultimodalGenerativeCVAE(object):
     def __init__(self,
@@ -958,7 +963,13 @@ class MultimodalGenerativeCVAE(object):
                    neighbors_edge_value,
                    robot,
                    map,
-                   prediction_horizon) -> torch.Tensor:
+                   prediction_horizon,
+                   score,
+                   contrastive=False,
+                   plm=False,
+                   bmc=False,
+                   criterion=None,
+                   temp=0.1) -> torch.Tensor:
         """
         Calculates the training loss for a batch.
 
@@ -995,6 +1006,10 @@ class MultimodalGenerativeCVAE(object):
                                   self.hyperparams['k'])
 
         log_p_y_xz_mean = torch.mean(log_p_y_xz, dim=0)  # [nbs]
+        if plm:
+            lamda = 0.75
+            plm_loss = 1 - pareto(-log_p_y_xz_mean)
+            log_p_y_xz_mean = (1-lamda) * log_p_y_xz_mean - lamda * plm_loss * 100
         log_likelihood = torch.mean(log_p_y_xz_mean)
 
         mutual_inf_q = mutual_inf_mc(self.latent.q_dist)
@@ -1002,6 +1017,14 @@ class MultimodalGenerativeCVAE(object):
 
         ELBO = log_likelihood - self.kl_weight * kl + 1. * mutual_inf_p
         loss = -ELBO
+
+        if contrastive:
+            factor_con = 1.0  #(originally 1.0 in Makansi)
+            con_loss = criterion(x, score)
+            loss = loss + factor_con * con_loss
+        elif bmc:
+            lamda = 0.9
+            loss = (1 - lamda) * loss + lamda * criterion(y, labels) / 10
 
         if self.hyperparams['log_histograms'] and self.log_writer is not None:
             self.log_writer.add_histogram('%s/%s' % (str(self.node_type), 'log_p_y_xz'),

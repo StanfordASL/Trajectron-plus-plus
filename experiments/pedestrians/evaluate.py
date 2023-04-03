@@ -72,7 +72,6 @@ if __name__ == "__main__":
         for i, scene in enumerate(scenes):
             print(f"---- Evaluating Scene {i + 1}/{len(scenes)}")
             timesteps = np.arange(scene.timesteps)
-
             predictions = eval_stg.predict(scene,
                                            timesteps,
                                            ph,
@@ -94,7 +93,12 @@ if __name__ == "__main__":
 
             eval_ade_batch_errors = np.hstack((eval_ade_batch_errors, batch_error_dict[args.node_type]['ade']))
             eval_fde_batch_errors = np.hstack((eval_fde_batch_errors, batch_error_dict[args.node_type]['fde']))
-
+            total_number_testing_samples = eval_fde_batch_errors.shape[0]
+            print('All         (ADE/FDE): %.2f/ %.2f   --- %d' % (
+                eval_ade_batch_errors.mean(),
+                eval_fde_batch_errors.mean(),
+                total_number_testing_samples))
+                
         print(np.mean(eval_fde_batch_errors))
         pd.DataFrame({'value': eval_ade_batch_errors, 'metric': 'ade', 'type': 'ml'}
                      ).to_csv(os.path.join(args.output_path, args.output_tag + '_ade_most_likely.csv'))
@@ -145,6 +149,7 @@ if __name__ == "__main__":
         ############### BEST OF 20 ###############
         eval_ade_batch_errors = np.array([])
         eval_fde_batch_errors = np.array([])
+        kalman_errors = np.array([])
         eval_kde_nll = np.array([])
         print("-- Evaluating best of 20")
         for i, scene in enumerate(scenes):
@@ -160,6 +165,11 @@ if __name__ == "__main__":
                                                z_mode=False,
                                                gmm_mode=False,
                                                full_dist=False)
+                kalman_error = eval_stg.make_kalman(scene,
+                                                timesteps,
+                                                min_history_timesteps=7,
+                                                min_future_timesteps=12)
+                kalman_errors = np.hstack((kalman_errors, kalman_error))
 
                 if not predictions:
                     continue
@@ -175,14 +185,33 @@ if __name__ == "__main__":
                 eval_ade_batch_errors = np.hstack((eval_ade_batch_errors, batch_error_dict[args.node_type]['ade']))
                 eval_fde_batch_errors = np.hstack((eval_fde_batch_errors, batch_error_dict[args.node_type]['fde']))
                 eval_kde_nll = np.hstack((eval_kde_nll, batch_error_dict[args.node_type]['kde']))
-
+            total_number_testing_samples = eval_fde_batch_errors.shape[0]
+            print('All         (ADE/FDE): %.2f/ %.2f   --- %d' % (
+                eval_ade_batch_errors.mean(),
+                eval_fde_batch_errors.mean(),
+                total_number_testing_samples))
+            assert kalman_errors.shape[0] == eval_fde_batch_errors.shape[0]
+            largest_errors_indexes = np.argsort(kalman_errors)
+            mask = np.ones(eval_ade_batch_errors.shape, dtype=bool)
+            for top_index in range(1, 4):
+                challenging = largest_errors_indexes[-int(
+                    total_number_testing_samples * top_index / 100):]
+                fde_errors_challenging = np.copy(eval_fde_batch_errors)
+                ade_errors_challenging = np.copy(eval_ade_batch_errors)
+                mask[challenging] = False
+                fde_errors_challenging[mask] = 0
+                ade_errors_challenging[mask] = 0
+                print('Challenging Top %d (ADE/FDE): %.2f/ %.2f   --- %d' %
+                        (top_index,
+                        np.sum(ade_errors_challenging) / len(challenging),
+                        np.sum(fde_errors_challenging) / len(challenging),
+                        len(challenging)))        
         pd.DataFrame({'value': eval_ade_batch_errors, 'metric': 'ade', 'type': 'best_of'}
                      ).to_csv(os.path.join(args.output_path, args.output_tag + '_ade_best_of.csv'))
         pd.DataFrame({'value': eval_fde_batch_errors, 'metric': 'fde', 'type': 'best_of'}
                      ).to_csv(os.path.join(args.output_path, args.output_tag + '_fde_best_of.csv'))
         pd.DataFrame({'value': eval_kde_nll, 'metric': 'kde', 'type': 'best_of'}
                      ).to_csv(os.path.join(args.output_path, args.output_tag + '_kde_best_of.csv'))
-
 
         ############### FULL ###############
         eval_ade_batch_errors = np.array([])

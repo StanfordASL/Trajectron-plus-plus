@@ -150,6 +150,18 @@ parser.add_argument('--k_eval',
                     type=int,
                     default=25)
 
+parser.add_argument('--contrastive',
+                    help="whether to add kalman filter based contrastive loss",
+                    action='store_true')
+
+parser.add_argument('--plm',
+                    help="whether to add plm pareto loss",
+                    action='store_true')
+
+parser.add_argument('--bmc',
+                    help="whether to add batch monte carlo loss",
+                    action='store_true')
+
 parser.add_argument('--seed',
                     help='manual seed to use, default is 123',
                     type=int,
